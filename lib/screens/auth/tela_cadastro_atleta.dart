@@ -81,7 +81,13 @@ class _TelaCadastroAtletaState extends State<TelaCadastroAtleta> {
       );
 
       await context.read<AtletaService>().salvarPerfil(atleta);
-      // AuthGate redireciona automaticamente
+
+      // ✅ CORREÇÃO: após cadastro bem-sucedido, remove toda a pilha de navegação
+      // e retorna ao AuthGate, que detecta o novo estado e redireciona para
+      // TelaHomeAtleta automaticamente.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

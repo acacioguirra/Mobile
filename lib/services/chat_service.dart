@@ -22,18 +22,27 @@ class ChatService {
     final id = _idConversa(meuUid, outroUid);
     final ref = _db.collection('conversas').doc(id);
 
-    final doc = await ref.get();
+    // ✅ CORREÇÃO: Usa set com merge em vez de verificar existência.
+    // Isso garante que o documento exista sem erros de permissão ou race conditions.
+    final dadosConversa = {
+      'id': id,
+      'participantes': FieldValue.arrayUnion([meuUid, outroUid]),
+      'nomesParticipantes': {
+        meuUid: meuNome,
+        outroUid: outroNome,
+      },
+      'ultimaAtividade': FieldValue.serverTimestamp(),
+    };
 
-    if (!doc.exists) {
-      final conversa = ConversaModel(
-        id: id,
-        participantes: [meuUid, outroUid],
-        nomesParticipantes: {meuUid: meuNome, outroUid: outroNome},
-        ultimaMensagem: '',
-        ultimaAtividade: DateTime.now(),
-        naoLidas: {meuUid: 0, outroUid: 0},
-      );
-      await ref.set(conversa.toMap());
+    await ref.set(dadosConversa, SetOptions(merge: true));
+
+    // Garante que os campos de inicialização existam se for uma conversa nova
+    final doc = await ref.get();
+    if (doc.data()?['naoLidas'] == null) {
+      await ref.update({
+        'ultimaMensagem': '',
+        'naoLidas': {meuUid: 0, outroUid: 0},
+      });
     }
 
     return id;
@@ -81,12 +90,17 @@ class ChatService {
 
     batch.set(msgRef, mensagem.toMap());
 
-    // Atualizar conversa
-    batch.update(_db.collection('conversas').doc(conversaId), {
-      'ultimaMensagem': texto,
-      'ultimaAtividade': DateTime.now(),
-      'naoLidas.$destinatarioUid': FieldValue.increment(1),
-    });
+    // ✅ CORREÇÃO: Usa set com merge na conversa para garantir que ela exista
+    // antes de tentar dar o update (evita erro NOT_FOUND).
+    batch.set(
+      _db.collection('conversas').doc(conversaId),
+      {
+        'ultimaMensagem': texto,
+        'ultimaAtividade': FieldValue.serverTimestamp(),
+        'naoLidas.$destinatarioUid': FieldValue.increment(1),
+      },
+      SetOptions(merge: true),
+    );
 
     await batch.commit();
   }
@@ -105,8 +119,8 @@ class ChatService {
 
   // Marcar mensagens como lidas
   Future<void> marcarComoLido(String conversaId, String meuUid) async {
-    await _db.collection('conversas').doc(conversaId).update({
-      'naoLidas.$meuUid': 0,
-    });
+    await _db.collection('conversas').doc(conversaId).set({
+      'naoLidas': {meuUid: 0}
+    }, SetOptions(merge: true));
   }
 }

@@ -34,42 +34,56 @@ class _TelaChatState extends State<TelaChat> {
   void initState() {
     super.initState();
     _meuUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    _carregarMeuNome();
-    _marcarComoLido();
+    _carregarDados();
   }
 
-  Future<void> _carregarMeuNome() async {
-    final usuario =
-        await context.read<AuthService>().buscarUsuarioAtual();
-    if (mounted) setState(() => _meuNome = usuario?.nome ?? '');
-  }
-
-  void _marcarComoLido() {
-    context.read<ChatService>().marcarComoLido(widget.conversaId, _meuUid);
+  Future<void> _carregarDados() async {
+    final usuario = await context.read<AuthService>().buscarUsuarioAtual();
+    if (mounted) {
+      setState(() => _meuNome = usuario?.nome ?? 'Usuário');
+      // Marcar como lido após carregar o UID
+      context.read<ChatService>().marcarComoLido(widget.conversaId, _meuUid);
+    }
   }
 
   Future<void> _enviar() async {
     final texto = _ctrl.text.trim();
     if (texto.isEmpty) return;
+    
+    // ✅ CORREÇÃO: Garante que temos o nome do remetente antes de enviar
+    if (_meuNome.isEmpty) {
+      await _carregarDados();
+    }
+
     _ctrl.clear();
 
-    await context.read<ChatService>().enviarMensagem(
-          conversaId: widget.conversaId,
-          remetenteUid: _meuUid,
-          remetenteNome: _meuNome,
-          destinatarioUid: widget.contatoUid,
-          texto: texto,
-        );
+    try {
+      await context.read<ChatService>().enviarMensagem(
+            conversaId: widget.conversaId,
+            remetenteUid: _meuUid,
+            remetenteNome: _meuNome,
+            destinatarioUid: widget.contatoUid,
+            texto: texto,
+          );
 
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+      _rolarParaFim();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao enviar: $e'), backgroundColor: Colors.red),
         );
       }
-    });
+    }
+  }
+
+  void _rolarParaFim() {
+    if (_scrollCtrl.hasClients) {
+      _scrollCtrl.animateTo(
+        _scrollCtrl.position.maxScrollExtent + 100,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   @override
@@ -107,19 +121,21 @@ class _TelaChatState extends State<TelaChat> {
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child:
-                        CircularProgressIndicator(color: AppColors.verde),
+                    child: CircularProgressIndicator(color: AppColors.verde),
                   );
                 }
 
                 final msgs = snap.data ?? [];
 
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_scrollCtrl.hasClients) {
-                    _scrollCtrl.jumpTo(
-                        _scrollCtrl.position.maxScrollExtent);
-                  }
-                });
+                if (msgs.isEmpty) {
+                  return const Center(
+                    child: Text('Diga "Olá!" para iniciar a conversa.',
+                        style: TextStyle(color: Colors.grey)),
+                  );
+                }
+
+                // Auto-scroll ao receber novas mensagens
+                WidgetsBinding.instance.addPostFrameCallback((_) => _rolarParaFim());
 
                 return ListView.builder(
                   controller: _scrollCtrl,
@@ -137,8 +153,7 @@ class _TelaChatState extends State<TelaChat> {
 
           // Campo de texto
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 30), // Padding extra para iPhones/Gesture nav
             color: const Color(0xFF0A0A0A),
             child: Row(
               children: [
@@ -216,8 +231,7 @@ class _Bolha extends StatelessWidget {
               const SizedBox(height: 4),
             ],
             Text(mensagem.texto,
-                style:
-                    const TextStyle(color: Colors.white, fontSize: 14)),
+                style: const TextStyle(color: Colors.white, fontSize: 14)),
           ],
         ),
       ),

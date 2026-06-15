@@ -90,10 +90,14 @@ class AtletaService {
     await task;
     final url = await ref.getDownloadURL();
 
-    // Salvar URL no perfil do atleta no Firestore
-    await _db.collection('atletas').doc(uid).update({
-      'videos': FieldValue.arrayUnion([url]),
-    });
+    // ✅ CORREÇÃO: usa set com merge:true em vez de update().
+    // O update() falha com "NOT_FOUND" quando o documento atletas/{uid}
+    // ainda não existe. Com set + merge, o documento é criado se não existir
+    // e o campo 'videos' é atualizado (ou criado) com arrayUnion.
+    await _db.collection('atletas').doc(uid).set(
+      {'videos': FieldValue.arrayUnion([url])},
+      SetOptions(merge: true),
+    );
 
     return url;
   }
@@ -109,10 +113,11 @@ class AtletaService {
       await ref.delete();
     } catch (_) {}
 
-    // Remover do Firestore
-    await _db.collection('atletas').doc(uid).update({
-      'videos': FieldValue.arrayRemove([videoUrl]),
-    });
+    // ✅ CORREÇÃO: usa set com merge:true para consistência com uploadVideo
+    await _db.collection('atletas').doc(uid).set(
+      {'videos': FieldValue.arrayRemove([videoUrl])},
+      SetOptions(merge: true),
+    );
   }
 
   // Upload de foto de perfil
@@ -129,10 +134,18 @@ class AtletaService {
 
     final url = await ref.getDownloadURL();
 
-    // Atualizar em atletas e usuarios
+    // ✅ CORREÇÃO: usa set com merge:true para não falhar se o documento
+    // atletas/{uid} ainda não existir (ex.: usuário olheiro que nunca
+    // completou o perfil de atleta).
     await Future.wait([
-      _db.collection('atletas').doc(uid).update({'fotoPerfil': url}),
-      _db.collection('usuarios').doc(uid).update({'fotoPerfil': url}),
+      _db.collection('atletas').doc(uid).set(
+            {'fotoPerfil': url},
+            SetOptions(merge: true),
+          ),
+      _db.collection('usuarios').doc(uid).set(
+            {'fotoPerfil': url},
+            SetOptions(merge: true),
+          ),
     ]);
 
     return url;

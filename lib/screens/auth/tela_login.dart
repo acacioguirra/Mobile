@@ -35,7 +35,13 @@ class _TelaLoginState extends State<TelaLogin> {
             email: _emailCtrl.text.trim(),
             senha: _senhaCtrl.text.trim(),
           );
-      // AuthGate cuida do redirecionamento
+
+      // ✅ CORREÇÃO: após login bem-sucedido, remove toda a pilha de navegação
+      // e retorna ao AuthGate, que detecta o novo estado e redireciona
+      // automaticamente para a tela correta (atleta ou olheiro).
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

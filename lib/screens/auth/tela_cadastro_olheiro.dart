@@ -41,7 +41,13 @@ class _TelaCadastroOlheiroState extends State<TelaCadastroOlheiro> {
             senha: _senhaCtrl.text.trim(),
             clube: _clubeCtrl.text.trim(),
           );
-      // AuthGate redireciona
+
+      // ✅ CORREÇÃO: após cadastro bem-sucedido, remove toda a pilha de navegação
+      // e retorna ao AuthGate, que detecta o novo estado e redireciona para
+      // TelaHomeOlheiro automaticamente.
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

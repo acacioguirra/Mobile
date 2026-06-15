@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'tela_editar_perfil_atleta.dart';
 import '../../services/atleta_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
@@ -67,13 +68,23 @@ class _PerfilConteudo extends StatelessWidget {
       appBar: AppBar(
         title: Text(isMeuPerfil ? 'Meu Perfil' : 'Perfil do Atleta'),
         actions: [
-          if (isMeuPerfil)
+          if (isMeuPerfil) ...[
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.grey),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TelaEditarPerfilAtleta(atleta: atleta),
+                ),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.logout, color: Colors.grey),
               onPressed: () async {
                 await context.read<AuthService>().logout();
               },
             ),
+          ],
         ],
       ),
       body: SingleChildScrollView(

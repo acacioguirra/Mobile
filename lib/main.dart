@@ -53,6 +53,7 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
+        // Aguardando estado inicial do Firebase Auth
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             backgroundColor: Colors.black,
@@ -62,11 +63,12 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        if (!snapshot.hasData) {
+        // Nenhum usuário autenticado → tela de boas-vindas
+        if (!snapshot.hasData || snapshot.data == null) {
           return const TelaBoasVindas();
         }
 
-        // Usuário logado — buscar tipo para redirecionar
+        // Usuário autenticado → buscar tipo no Firestore para redirecionar
         return FutureBuilder<UsuarioModel?>(
           future: authService.buscarUsuarioAtual(),
           builder: (context, userSnap) {
@@ -80,8 +82,11 @@ class AuthGate extends StatelessWidget {
             }
 
             final usuario = userSnap.data;
+
+            // Documento não encontrado no Firestore → volta para boas-vindas
             if (usuario == null) return const TelaBoasVindas();
 
+            // ✅ CORREÇÃO: redireciona corretamente para olheiro ou atleta
             if (usuario.tipo == TipoUsuario.olheiro) {
               return const TelaHomeOlheiro();
             }
