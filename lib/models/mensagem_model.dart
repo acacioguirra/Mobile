@@ -1,5 +1,7 @@
 // lib/models/mensagem_model.dart
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum TipoMensagem { texto, video, imagem }
 
 class MensagemModel {
@@ -34,9 +36,22 @@ class MensagemModel {
         orElse: () => TipoMensagem.texto,
       ),
       midiaUrl: map['midiaUrl'],
-      enviadaEm: (map['enviadaEm'] as dynamic)?.toDate() ?? DateTime.now(),
+      // CORREÇÃO: parse robusto de Timestamp do Firestore
+      enviadaEm: _parseDateTime(map['enviadaEm']),
       lida: map['lida'] ?? false,
     );
+  }
+
+  // CORREÇÃO: suporte explícito a Timestamp do Firestore
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    try {
+      return (value as Timestamp).toDate();
+    } catch (_) {
+      return DateTime.now();
+    }
   }
 
   Map<String, dynamic> toMap() {
@@ -46,7 +61,8 @@ class MensagemModel {
       'texto': texto,
       'tipo': tipo.name,
       'midiaUrl': midiaUrl,
-      'enviadaEm': enviadaEm,
+      // CORREÇÃO: salvar como Timestamp explícito (o service usa serverTimestamp, mas aqui fica o fallback)
+      'enviadaEm': Timestamp.fromDate(enviadaEm),
       'lida': lida,
     };
   }
@@ -75,9 +91,26 @@ class ConversaModel {
       participantes: List<String>.from(map['participantes'] ?? []),
       nomesParticipantes: Map<String, String>.from(map['nomesParticipantes'] ?? {}),
       ultimaMensagem: map['ultimaMensagem'] ?? '',
-      ultimaAtividade: (map['ultimaAtividade'] as dynamic)?.toDate() ?? DateTime.now(),
-      naoLidas: Map<String, int>.from(map['naoLidas'] ?? {}),
+      // CORREÇÃO: parse robusto de Timestamp
+      ultimaAtividade: _parseDateTime(map['ultimaAtividade']),
+      naoLidas: Map<String, int>.from(
+        (map['naoLidas'] as Map<String, dynamic>? ?? {}).map(
+          (k, v) => MapEntry(k, (v as num).toInt()),
+        ),
+      ),
     );
+  }
+
+  // CORREÇÃO: suporte explícito a Timestamp do Firestore
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    try {
+      return (value as Timestamp).toDate();
+    } catch (_) {
+      return DateTime.now();
+    }
   }
 
   Map<String, dynamic> toMap() {
@@ -85,7 +118,7 @@ class ConversaModel {
       'participantes': participantes,
       'nomesParticipantes': nomesParticipantes,
       'ultimaMensagem': ultimaMensagem,
-      'ultimaAtividade': ultimaAtividade,
+      'ultimaAtividade': Timestamp.fromDate(ultimaAtividade),
       'naoLidas': naoLidas,
     };
   }

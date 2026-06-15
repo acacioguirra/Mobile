@@ -1,6 +1,7 @@
 // lib/services/atleta_service.dart
 
 import 'dart:io';
+import 'dart:developer' as dev;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../models/atleta_model.dart';
@@ -11,23 +12,39 @@ class AtletaService {
 
   // Criar/atualizar perfil do atleta
   Future<void> salvarPerfil(AtletaModel atleta) async {
-    await _db.collection('atletas').doc(atleta.uid).set(atleta.toMap());
+    try {
+      dev.log('Salvando perfil do atleta: ${atleta.uid}');
+      await _db.collection('atletas').doc(atleta.uid).set(atleta.toMap());
+      dev.log('Perfil salvo com sucesso!');
+    } catch (e) {
+      dev.log('ERRO ao salvar perfil: $e');
+      rethrow;
+    }
   }
 
   // Buscar perfil do atleta por uid
   Future<AtletaModel?> buscarPorUid(String uid) async {
-    final doc = await _db.collection('atletas').doc(uid).get();
-    if (!doc.exists) return null;
-    return AtletaModel.fromMap(doc.data()!, doc.id);
+    try {
+      final doc = await _db.collection('atletas').doc(uid).get();
+      if (!doc.exists) return null;
+      return AtletaModel.fromMap(doc.data()!, doc.id);
+    } catch (e) {
+      dev.log('ERRO ao buscar atleta por UID: $e');
+      return null;
+    }
   }
 
   // Stream do feed (todos os atletas, ordenado por data)
+  // CORREÇÃO: adicionado tratamento de erro para índice ausente no Firestore
   Stream<List<AtletaModel>> streamFeed() {
     return _db
         .collection('atletas')
         .orderBy('criadoEm', descending: true)
         .limit(30)
         .snapshots()
+        .handleError((e) {
+          dev.log('ERRO no streamFeed (verifique índice "criadoEm" no Firestore): $e');
+        })
         .map((snap) => snap.docs
             .map((d) => AtletaModel.fromMap(d.data(), d.id))
             .toList());
@@ -40,66 +57,95 @@ class AtletaService {
     int? idadeMin,
     int? idadeMax,
   }) async {
-    Query query = _db.collection('atletas');
+    try {
+      Query query = _db.collection('atletas');
 
-    if (posicao != null && posicao.isNotEmpty) {
-      query = query.where('posicao', isEqualTo: posicao);
-    }
-    if (regiao != null && regiao.isNotEmpty) {
-      query = query.where('regiao', isEqualTo: regiao);
-    }
+      if (posicao != null && posicao.isNotEmpty) {
+        query = query.where('posicao', isEqualTo: posicao);
+      }
+      if (regiao != null && regiao.isNotEmpty) {
+        query = query.where('regiao', isEqualTo: regiao);
+      }
 
-    final snap = await query.get();
-    var atletas = snap.docs
-        .map((d) => AtletaModel.fromMap(d.data() as Map<String, dynamic>, d.id))
-        .toList();
+      final snap = await query.get();
+      var atletas = snap.docs
+          .map((d) => AtletaModel.fromMap(d.data() as Map<String, dynamic>, d.id))
+          .toList();
 
-    // Filtro de idade no client (Firestore não suporta múltiplos range filters)
-    if (idadeMin != null) {
-      atletas = atletas.where((a) => a.idade >= idadeMin).toList();
-    }
-    if (idadeMax != null) {
-      atletas = atletas.where((a) => a.idade <= idadeMax).toList();
-    }
+      if (idadeMin != null) {
+        atletas = atletas.where((a) => a.idade >= idadeMin).toList();
+      }
+      if (idadeMax != null) {
+        atletas = atletas.where((a) => a.idade <= idadeMax).toList();
+      }
 
-    return atletas;
+      return atletas;
+    } catch (e) {
+      dev.log('ERRO ao buscar atletas com filtros: $e');
+      rethrow;
+    }
   }
 
-  // Upload de vídeo MP4 para o Firebase Storage
+  // CORREÇÃO: Upload de vídeo com progresso funcionando corretamente
   Future<String> uploadVideo({
     required String uid,
     required File arquivo,
     required Function(double) onProgresso,
   }) async {
-    final nomeArquivo = '${DateTime.now().millisecondsSinceEpoch}.mp4';
-    final ref = _storage.ref('videos/$uid/$nomeArquivo');
+    try {
+      dev.log('Iniciando upload de vídeo para UID: $uid');
+      final nomeArquivo = '${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final ref = _storage.ref('videos/$uid/$nomeArquivo');
 
-    final task = ref.putFile(
-      arquivo,
-      SettableMetadata(contentType: 'video/mp4'),
-    );
+      // CORREÇÃO: Criar a task ANTES de escutar os eventos
+      final task = ref.putFile(
+        arquivo,
+        SettableMetadata(contentType: 'video/mp4'),
+      );
 
-    // Monitorar progresso do upload
-    task.snapshotEvents.listen((snapshot) {
-      if (snapshot.totalBytes > 0) {
-        final progresso = snapshot.bytesTransferred / snapshot.totalBytes;
-        onProgresso(progresso);
+      // CORREÇÃO: Escutar progresso via snapshotEvents de forma síncrona
+      // O listener é registrado antes do await, garantindo que não perde eventos
+      task.snapshotEvents.listen(
+        (snapshot) {
+          if (snapshot.totalBytes > 0) {
+            final progresso = snapshot.bytesTransferred / snapshot.totalBytes;
+            onProgresso(progresso);
+            dev.log('Upload progresso: ${(progresso * 100).toStringAsFixed(1)}%');
+          }
+        },
+        onError: (e) => dev.log('Erro no progresso: $e'),
+      );
+
+      // Aguardar conclusão do upload
+      final snapshot = await task;
+
+      if (snapshot.state != TaskState.success) {
+        throw Exception('Upload falhou com estado: ${snapshot.state}');
       }
-    });
 
-    await task;
-    final url = await ref.getDownloadURL();
+      dev.log('Upload concluído no Storage. Buscando URL...');
+      final url = await ref.getDownloadURL();
+      dev.log('URL obtida: $url');
 
-    // ✅ CORREÇÃO: usa set com merge:true em vez de update().
-    // O update() falha com "NOT_FOUND" quando o documento atletas/{uid}
-    // ainda não existe. Com set + merge, o documento é criado se não existir
-    // e o campo 'videos' é atualizado (ou criado) com arrayUnion.
-    await _db.collection('atletas').doc(uid).set(
-      {'videos': FieldValue.arrayUnion([url])},
-      SetOptions(merge: true),
-    );
+      // CORREÇÃO: Garantir progresso 100% após upload concluído
+      onProgresso(1.0);
 
-    return url;
+      dev.log('Salvando URL no Firestore...');
+      // CORREÇÃO: Usar FieldValue.serverTimestamp() para garantir Timestamp correto
+      await _db.collection('atletas').doc(uid).set(
+        {
+          'videos': FieldValue.arrayUnion([url]),
+          'ultimoVideoEm': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      dev.log('Vídeo vinculado ao atleta com sucesso!');
+
+      return url;
+    } catch (e) {
+      dev.log('ERRO CRÍTICO no upload de vídeo: $e');
+      rethrow;
+    }
   }
 
   // Deletar vídeo
@@ -107,13 +153,13 @@ class AtletaService {
     required String uid,
     required String videoUrl,
   }) async {
-    // Remover do Storage
     try {
       final ref = _storage.refFromURL(videoUrl);
       await ref.delete();
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Aviso: Não foi possível deletar do Storage (pode já ter sido removido): $e');
+    }
 
-    // ✅ CORREÇÃO: usa set com merge:true para consistência com uploadVideo
     await _db.collection('atletas').doc(uid).set(
       {'videos': FieldValue.arrayRemove([videoUrl])},
       SetOptions(merge: true),
@@ -125,29 +171,31 @@ class AtletaService {
     required String uid,
     required File arquivo,
   }) async {
-    final ref = _storage.ref('fotos_perfil/$uid/perfil.jpg');
+    try {
+      final ref = _storage.ref('fotos_perfil/$uid/perfil.jpg');
 
-    await ref.putFile(
-      arquivo,
-      SettableMetadata(contentType: 'image/jpeg'),
-    );
+      await ref.putFile(
+        arquivo,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
 
-    final url = await ref.getDownloadURL();
+      final url = await ref.getDownloadURL();
 
-    // ✅ CORREÇÃO: usa set com merge:true para não falhar se o documento
-    // atletas/{uid} ainda não existir (ex.: usuário olheiro que nunca
-    // completou o perfil de atleta).
-    await Future.wait([
-      _db.collection('atletas').doc(uid).set(
-            {'fotoPerfil': url},
-            SetOptions(merge: true),
-          ),
-      _db.collection('usuarios').doc(uid).set(
-            {'fotoPerfil': url},
-            SetOptions(merge: true),
-          ),
-    ]);
+      await Future.wait([
+        _db.collection('atletas').doc(uid).set(
+              {'fotoPerfil': url},
+              SetOptions(merge: true),
+            ),
+        _db.collection('usuarios').doc(uid).set(
+              {'fotoPerfil': url},
+              SetOptions(merge: true),
+            ),
+      ]);
 
-    return url;
+      return url;
+    } catch (e) {
+      dev.log('ERRO no upload de foto de perfil: $e');
+      rethrow;
+    }
   }
 }

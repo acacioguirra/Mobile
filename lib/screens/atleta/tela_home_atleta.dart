@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/atleta_service.dart';
-import '../../services/auth_service.dart';
 import '../../models/atleta_model.dart';
 import '../../utils/app_colors.dart';
 import '../shared/tela_perfil_atleta.dart';

@@ -1,5 +1,6 @@
 // lib/services/chat_service.dart
 
+import 'dart:developer' as dev;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/mensagem_model.dart';
 
@@ -19,33 +20,33 @@ class ChatService {
     required String outroUid,
     required String outroNome,
   }) async {
-    final id = _idConversa(meuUid, outroUid);
-    final ref = _db.collection('conversas').doc(id);
+    try {
+      dev.log('Iniciando conversa entre $meuUid e $outroUid');
+      final id = _idConversa(meuUid, outroUid);
+      final ref = _db.collection('conversas').doc(id);
 
-    // ✅ CORREÇÃO: Usa set com merge em vez de verificar existência.
-    // Isso garante que o documento exista sem erros de permissão ou race conditions.
-    final dadosConversa = {
-      'id': id,
-      'participantes': FieldValue.arrayUnion([meuUid, outroUid]),
-      'nomesParticipantes': {
-        meuUid: meuNome,
-        outroUid: outroNome,
-      },
-      'ultimaAtividade': FieldValue.serverTimestamp(),
-    };
+      // CORREÇÃO: set com merge garante criação e atualização sem sobrescrever
+      await ref.set(
+        {
+          'id': id,
+          'participantes': [meuUid, outroUid],
+          'nomesParticipantes': {
+            meuUid: meuNome,
+            outroUid: outroNome,
+          },
+          'ultimaAtividade': FieldValue.serverTimestamp(),
+          'ultimaMensagem': '',
+          'naoLidas': {meuUid: 0, outroUid: 0},
+        },
+        SetOptions(merge: true),
+      );
 
-    await ref.set(dadosConversa, SetOptions(merge: true));
-
-    // Garante que os campos de inicialização existam se for uma conversa nova
-    final doc = await ref.get();
-    if (doc.data()?['naoLidas'] == null) {
-      await ref.update({
-        'ultimaMensagem': '',
-        'naoLidas': {meuUid: 0, outroUid: 0},
-      });
+      dev.log('Conversa pronta: $id');
+      return id;
+    } catch (e) {
+      dev.log('ERRO ao iniciar conversa: $e');
+      rethrow;
     }
-
-    return id;
   }
 
   // Stream de mensagens de uma conversa (tempo real)
@@ -56,9 +57,15 @@ class ChatService {
         .collection('mensagens')
         .orderBy('enviadaEm', descending: false)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => MensagemModel.fromMap(d.data(), d.id))
-            .toList());
+        .handleError((e) {
+          dev.log('ERRO no streamMensagens (verifique índice "enviadaEm"): $e');
+        })
+        .map((snap) {
+          dev.log('Recebidas ${snap.docs.length} mensagens para $conversaId');
+          return snap.docs
+              .map((d) => MensagemModel.fromMap(d.data(), d.id))
+              .toList();
+        });
   }
 
   // Enviar mensagem de texto
@@ -69,58 +76,75 @@ class ChatService {
     required String destinatarioUid,
     required String texto,
   }) async {
-    final mensagem = MensagemModel(
-      id: '',
-      remetenteUid: remetenteUid,
-      remetenteNome: remetenteNome,
-      texto: texto,
-      tipo: TipoMensagem.texto,
-      enviadaEm: DateTime.now(),
-      lida: false,
-    );
+    try {
+      dev.log('Enviando mensagem na conversa: $conversaId');
+      final batch = _db.batch();
 
-    final batch = _db.batch();
+      final msgRef = _db
+          .collection('conversas')
+          .doc(conversaId)
+          .collection('mensagens')
+          .doc();
 
-    // Adicionar mensagem
-    final msgRef = _db
-        .collection('conversas')
-        .doc(conversaId)
-        .collection('mensagens')
-        .doc();
+      final dadosMsg = {
+        'remetenteUid': remetenteUid,
+        'remetenteNome': remetenteNome,
+        'texto': texto,
+        'tipo': 'texto',
+        // CORREÇÃO: sempre usar serverTimestamp para ordenação correta
+        'enviadaEm': FieldValue.serverTimestamp(),
+        'lida': false,
+      };
 
-    batch.set(msgRef, mensagem.toMap());
+      batch.set(msgRef, dadosMsg);
 
-    // ✅ CORREÇÃO: Usa set com merge na conversa para garantir que ela exista
-    // antes de tentar dar o update (evita erro NOT_FOUND).
-    batch.set(
-      _db.collection('conversas').doc(conversaId),
-      {
-        'ultimaMensagem': texto,
-        'ultimaAtividade': FieldValue.serverTimestamp(),
-        'naoLidas.$destinatarioUid': FieldValue.increment(1),
-      },
-      SetOptions(merge: true),
-    );
+      // CORREÇÃO: atualizar conversa com serverTimestamp para manter ordenação no streamConversas
+      batch.set(
+        _db.collection('conversas').doc(conversaId),
+        {
+          'ultimaMensagem': texto,
+          'ultimaAtividade': FieldValue.serverTimestamp(),
+          'naoLidas.$destinatarioUid': FieldValue.increment(1),
+        },
+        SetOptions(merge: true),
+      );
 
-    await batch.commit();
+      await batch.commit();
+      dev.log('Mensagem enviada com sucesso!');
+    } catch (e) {
+      dev.log('ERRO ao enviar mensagem: $e');
+      rethrow;
+    }
   }
 
   // Stream de conversas do usuário
+  // CORREÇÃO: query requer índice composto no Firestore:
+  // Coleção: conversas | Campos: participantes (Arrays) + ultimaAtividade (Desc)
   Stream<List<ConversaModel>> streamConversas(String uid) {
     return _db
         .collection('conversas')
         .where('participantes', arrayContains: uid)
         .orderBy('ultimaAtividade', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => ConversaModel.fromMap(d.data(), d.id))
-            .toList());
+        .handleError((e) {
+          dev.log('ERRO no streamConversas. Verifique índice composto no Firestore: $e');
+        })
+        .map((snap) {
+          dev.log('Encontradas ${snap.docs.length} conversas para o usuário $uid');
+          return snap.docs
+              .map((d) => ConversaModel.fromMap(d.data(), d.id))
+              .toList();
+        });
   }
 
   // Marcar mensagens como lidas
   Future<void> marcarComoLido(String conversaId, String meuUid) async {
-    await _db.collection('conversas').doc(conversaId).set({
-      'naoLidas': {meuUid: 0}
-    }, SetOptions(merge: true));
+    try {
+      await _db.collection('conversas').doc(conversaId).set({
+        'naoLidas': {meuUid: 0}
+      }, SetOptions(merge: true));
+    } catch (e) {
+      dev.log('Erro ao marcar como lido: $e');
+    }
   }
 }

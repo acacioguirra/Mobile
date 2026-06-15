@@ -1,5 +1,7 @@
 // lib/models/atleta_model.dart
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class AtletaModel {
   final String uid;
   final String nome;
@@ -51,8 +53,20 @@ class AtletaModel {
       videos: List<String>.from(map['videos'] ?? []),
       habilidades: List<String>.from(map['habilidades'] ?? []),
       bio: map['bio'] ?? '',
-      criadoEm: (map['criadoEm'] as dynamic)?.toDate() ?? DateTime.now(),
+      // CORREÇÃO: suporte a Timestamp e DateTime do Firestore
+      criadoEm: _parseDateTime(map['criadoEm']),
     );
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    try {
+      return (value as Timestamp).toDate();
+    } catch (_) {
+      return DateTime.now();
+    }
   }
 
   Map<String, dynamic> toMap() {
@@ -71,7 +85,9 @@ class AtletaModel {
       'videos': videos,
       'habilidades': habilidades,
       'bio': bio,
-      'criadoEm': criadoEm,
+      // CORREÇÃO: usar FieldValue.serverTimestamp() não é possível aqui
+      // mas garantimos que o DateTime seja salvo como Timestamp pelo Firestore
+      'criadoEm': Timestamp.fromDate(criadoEm),
     };
   }
 }

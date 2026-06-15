@@ -55,12 +55,7 @@ class AuthGate extends StatelessWidget {
       builder: (context, snapshot) {
         // Aguardando estado inicial do Firebase Auth
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Colors.black,
-            body: Center(
-              child: CircularProgressIndicator(color: AppColors.verde),
-            ),
-          );
+          return const _TelaCarregando();
         }
 
         // Nenhum usuário autenticado → tela de boas-vindas
@@ -68,25 +63,25 @@ class AuthGate extends StatelessWidget {
           return const TelaBoasVindas();
         }
 
-        // Usuário autenticado → buscar tipo no Firestore para redirecionar
-        return FutureBuilder<UsuarioModel?>(
-          future: authService.buscarUsuarioAtual(),
+        // CORREÇÃO: Usar StreamBuilder no Firestore em vez de FutureBuilder
+        // O FutureBuilder causava race condition: o Firebase Auth atualizava o
+        // estado antes do documento do usuário ser criado no Firestore,
+        // fazendo buscarUsuarioAtual() retornar null e jogar para TelaBoasVindas.
+        return StreamBuilder<UsuarioModel?>(
+          stream: authService.streamUsuarioAtual(),
           builder: (context, userSnap) {
             if (userSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                backgroundColor: Colors.black,
-                body: Center(
-                  child: CircularProgressIndicator(color: AppColors.verde),
-                ),
-              );
+              return const _TelaCarregando();
             }
 
             final usuario = userSnap.data;
 
-            // Documento não encontrado no Firestore → volta para boas-vindas
-            if (usuario == null) return const TelaBoasVindas();
+            // Documento ainda não existe no Firestore (pode estar sendo criado)
+            // Aguarda em vez de redirecionar para boas-vindas
+            if (usuario == null) {
+              return const _TelaCarregando();
+            }
 
-            // ✅ CORREÇÃO: redireciona corretamente para olheiro ou atleta
             if (usuario.tipo == TipoUsuario.olheiro) {
               return const TelaHomeOlheiro();
             }
@@ -94,6 +89,20 @@ class AuthGate extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _TelaCarregando extends StatelessWidget {
+  const _TelaCarregando();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: CircularProgressIndicator(color: AppColors.verde),
+      ),
     );
   }
 }

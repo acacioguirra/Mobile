@@ -13,6 +13,22 @@ class AuthService {
 
   User? get usuarioAtual => _auth.currentUser;
 
+  // CORREÇÃO: Stream do documento do usuário no Firestore
+  // Usado pelo AuthGate para evitar race condition entre Auth e Firestore
+  Stream<UsuarioModel?> streamUsuarioAtual() {
+    return _auth.authStateChanges().asyncExpand((user) {
+      if (user == null) return Stream.value(null);
+      return _db
+          .collection('usuarios')
+          .doc(user.uid)
+          .snapshots()
+          .map((doc) {
+            if (!doc.exists || doc.data() == null) return null;
+            return UsuarioModel.fromMap(doc.data()!, doc.id);
+          });
+    });
+  }
+
   // Cadastro como Atleta
   Future<UsuarioModel?> cadastrarAtleta({
     required String nome,
@@ -98,7 +114,7 @@ class AuthService {
     await _auth.signOut();
   }
 
-  // Buscar dados do usuário atual
+  // Buscar dados do usuário atual (one-shot, para uso pontual)
   Future<UsuarioModel?> buscarUsuarioAtual() async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return null;

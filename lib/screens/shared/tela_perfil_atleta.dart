@@ -5,12 +5,11 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import 'tela_editar_perfil_atleta.dart';
+import '../atleta/tela_editar_perfil_atleta.dart';
 import '../../services/atleta_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
 import '../../models/atleta_model.dart';
-import '../../models/usuario_model.dart';
 import '../../utils/app_colors.dart';
 import 'tela_chat.dart';
 

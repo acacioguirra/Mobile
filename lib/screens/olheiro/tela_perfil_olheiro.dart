@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
-import '../../models/usuario_model.dart';
 import '../../utils/app_colors.dart';
 
 class TelaPerfilOlheiro extends StatefulWidget {
