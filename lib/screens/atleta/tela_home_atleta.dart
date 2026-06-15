@@ -1,11 +1,12 @@
 // lib/screens/atleta/tela_home_atleta.dart
 
-import 'dart:io';
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/atleta_service.dart';
+import '../../services/auth_service.dart';
 import '../../models/atleta_model.dart';
 import '../../utils/app_colors.dart';
 import '../shared/tela_perfil_atleta.dart';
@@ -224,42 +225,52 @@ class _TabUploadVideoState extends State<_TabUploadVideo> {
   String? _nomeArquivo;
 
   Future<void> _selecionarEEnviar() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      allowMultiple: false,
-    );
-
-    if (result == null || result.files.single.path == null) return;
-
-    final arquivo = File(result.files.single.path!);
-    final nome = result.files.single.name;
-
-    // Verificar tamanho (limite 100MB)
-    final tamanhoMB = arquivo.lengthSync() / (1024 * 1024);
-    if (tamanhoMB > 100) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vídeo muito grande. Máximo 100MB.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    setState(() {
-      _enviando = true;
-      _progresso = 0;
-      _nomeArquivo = nome;
-    });
-
     try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      await context.read<AtletaService>().uploadVideo(
+      final picker = ImagePicker();
+      final picked = await picker.pickVideo(
+        source: ImageSource.gallery,
+      );
+
+      if (picked == null) {
+        dev.log('Nenhum vídeo selecionado');
+        return;
+      }
+
+      dev.log('Vídeo selecionado: ${picked.name}');
+
+      // Verificar tamanho (limite 100MB) — funciona na web e mobile
+      final tamanhoBytes = await picked.length();
+      final tamanhoMB = tamanhoBytes / (1024 * 1024);
+      dev.log('Tamanho: ${tamanhoMB.toStringAsFixed(1)}MB');
+
+      if (tamanhoMB > 100) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Vídeo muito grande. Máximo 100MB.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _enviando = true;
+        _progresso = 0;
+        _nomeArquivo = picked.name;
+      });
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) throw 'Usuário não autenticado.';
+
+      // CORREÇÃO: usar XFile diretamente (compatível com web e mobile)
+      await context.read<AtletaService>().uploadVideoXFile(
             uid: uid,
-            arquivo: arquivo,
-            onProgresso: (p) => setState(() => _progresso = p),
+            xfile: picked,
+            onProgresso: (p) {
+              if (mounted) setState(() => _progresso = p);
+            },
           );
 
       if (mounted) {
@@ -271,10 +282,13 @@ class _TabUploadVideoState extends State<_TabUploadVideo> {
         );
       }
     } catch (e) {
+      dev.log('ERRO no upload de vídeo: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erro: $e'), backgroundColor: Colors.red),
+            content: Text('Erro ao enviar vídeo: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {

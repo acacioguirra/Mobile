@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:developer' as dev;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/atleta_model.dart';
 
 class AtletaService {
@@ -82,6 +83,61 @@ class AtletaService {
       return atletas;
     } catch (e) {
       dev.log('ERRO ao buscar atletas com filtros: $e');
+      rethrow;
+    }
+  }
+
+  // Upload de vídeo usando XFile — compatível com Web, Android e iOS
+  Future<String> uploadVideoXFile({
+    required String uid,
+    required XFile xfile,
+    required Function(double) onProgresso,
+  }) async {
+    try {
+      dev.log('Iniciando upload XFile para UID: $uid');
+      final nomeArquivo = '${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final ref = _storage.ref('videos/$uid/$nomeArquivo');
+
+      // Lê os bytes do XFile (funciona na web e no mobile)
+      final bytes = await xfile.readAsBytes();
+      dev.log('Bytes lidos: ${bytes.length}');
+
+      final task = ref.putData(
+        bytes,
+        SettableMetadata(contentType: 'video/mp4'),
+      );
+
+      task.snapshotEvents.listen(
+        (snapshot) {
+          if (snapshot.totalBytes > 0) {
+            final progresso = snapshot.bytesTransferred / snapshot.totalBytes;
+            onProgresso(progresso);
+          }
+        },
+        onError: (e) => dev.log('Erro no progresso: $e'),
+      );
+
+      final snapshot = await task;
+      if (snapshot.state != TaskState.success) {
+        throw Exception('Upload falhou: ${snapshot.state}');
+      }
+
+      onProgresso(1.0);
+      final url = await ref.getDownloadURL();
+      dev.log('URL obtida: $url');
+
+      await _db.collection('atletas').doc(uid).set(
+        {
+          'videos': FieldValue.arrayUnion([url]),
+          'ultimoVideoEm': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      dev.log('Vídeo vinculado ao atleta!');
+      return url;
+    } catch (e) {
+      dev.log('ERRO no uploadVideoXFile: $e');
       rethrow;
     }
   }

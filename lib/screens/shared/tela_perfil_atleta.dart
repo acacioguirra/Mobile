@@ -10,6 +10,7 @@ import '../../services/atleta_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_service.dart';
 import '../../models/atleta_model.dart';
+import '../../models/usuario_model.dart';
 import '../../utils/app_colors.dart';
 import 'tela_chat.dart';
 

@@ -165,9 +165,8 @@ class _TelaEditarPerfilAtletaState extends State<TelaEditarPerfilAtleta> {
                     selected: sel,
                     onSelected: (v) {
                       setState(() {
-                        if (v && _habilidadesSelecionadas.length < 5) {
-                          _habilidadesSelecionadas.add(h);
-                        } else if (!v) _habilidadesSelecionadas.remove(h);
+                        if (v && _habilidadesSelecionadas.length < 5) _habilidadesSelecionadas.add(h);
+                        else if (!v) _habilidadesSelecionadas.remove(h);
                       });
                     },
                   );
