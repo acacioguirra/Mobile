@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Usuários: só o próprio usuário pode ler/escrever
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Atletas: qualquer autenticado pode ler; só o próprio atleta pode escrever
+    match /atletas/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Conversas: só participantes podem ler/escrever
+    match /conversas/{conversaId} {
+      allow read, write: if request.auth != null &&
+        request.auth.uid in resource.data.participantes;
+
+      // Mensagens dentro da conversa
+      match /mensagens/{msgId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}
